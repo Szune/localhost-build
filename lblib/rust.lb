@@ -5,6 +5,7 @@
 $check-type ?= clippy
 $color      ?= "--color=always"
 $profile    ?= ""
+$quit-after ?= yes
 
 # builtin variables
 $format     = fmt -f
@@ -43,7 +44,10 @@ $show-test  = showtest -st
 
 @check
 !check $check-type $color
-:q
+:if $quit-after
+:eq yes
+:qt
+:goto @end
 # end format -> build -> test -> check
 
 @format-only
@@ -107,3 +111,5 @@ $show-test  = showtest -st
     :e cargo $checker $color
     :los $stderr
 ]
+
+@end
