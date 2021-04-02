@@ -1,0 +1,11 @@
+#$build = build --release
+!run "build" "build --release"
+!run "tests" "test"
+
+
+[run $what $command
+    :e cargo $command
+    :loe > $what failed:\n$stderr\n$stdout
+    :los > $what succeeded
+    :qoe
+]

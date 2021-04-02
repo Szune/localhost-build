@@ -1,0 +1,9 @@
+$help = help -h --help
+
+# help
+!gotoarg $help @help
+
+[gotoarg $arg $goto
+    :hasarg $arg
+    :gotot $goto
+]

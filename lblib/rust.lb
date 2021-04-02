@@ -1,0 +1,109 @@
+&import(lblib/util.lb)
+
+# user configurable variables
+# $check-type can be either clippy or check
+$check-type ?= clippy
+$color      ?= "--color=always"
+$profile    ?= ""
+
+# builtin variables
+$format     = fmt -f
+$build      = build -b
+$test       = test -t
+$check      = check -c
+$release    = release -r --release
+$show-test  = showtest -st
+
+:hasarg $release
+:sett profile --release
+
+# format only
+!gotoarg $format @format-only
+
+# build only
+!gotoarg $build @build-only
+
+# test only
+!gotoarg $test @test-only
+
+# check only
+!gotoarg $check @check-only
+
+# begin format -> build -> test -> check
+@format
+!format
+:qoe
+
+@build
+!build $color
+:qoe
+
+@test
+!test 0 $show-test $color
+
+@check
+!check $check-type $color
+:q
+# end format -> build -> test -> check
+
+@format-only
+!format
+:q
+
+@build-only
+!build $color
+:q
+
+@test-only
+!test only $show-test $color
+:q
+
+@check-only
+!check $check-type $color
+:q
+
+# show help
+@help
+:l [Rust build script]
+:l > If no arguments are specified, the workflow is as follows:
+:l Format -> Build -> Test -> Check\n
+:l Available arguments:\n
+:l Argument                Action
+:l --------                ------
+:l $format                  formats the code
+:l $build                builds the code
+:l $test                 runs the tests
+:l $check                analyzes the code
+:l $release    builds release instead of debug
+:q
+
+[format
+    :e cargo fmt
+    :loe > formatting failed:\n$stderr
+    :los > formatting succeeded
+]
+
+[build $color
+    :e cargo build $profile $color
+    :loe > build failed:\n$stderr
+    :los > build succeeded
+]
+
+[test $only $show-test $color
+    :e cargo test $color -- $color
+    :loe > tests failed:\n$stdout
+    :qoe
+    :if $only
+    :eq only
+    :or
+    :hasarg $show-test
+    :lt > tests succeeded:\n$stdout
+    :lf > tests succeeded
+]
+
+
+[check $checker $color
+    :l > analyzing code using cargo $checker
+    :e cargo $checker $color
+    :los $stderr
+]
