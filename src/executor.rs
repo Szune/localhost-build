@@ -265,7 +265,7 @@ impl Executor {
         false
     }
 
-    fn get_strings(&mut self, input: String) -> Vec<String> {
+    fn get_strings(&self, input: String) -> Vec<String> {
         let mut strings = Vec::new();
         let mut sb = Vec::new();
         let mut it = input.char_indices();
@@ -283,6 +283,75 @@ impl Executor {
             current = it.next();
         }
         if sb.iter().any(|c| !matches!(c, ' ' | '\r')) {
+            strings.push(String::from_iter(&sb));
+        }
+        strings
+    }
+
+    fn get_execute_strings(input: String) -> Vec<String> {
+        let mut strings = Vec::new();
+        let mut sb = Vec::new();
+        let mut it = input.chars();
+        let mut buffer = ['\n', '\n'];
+        let mut in_string = false;
+        buffer[0] = it.next().unwrap_or('\n');
+        buffer[1] = it.next().unwrap_or('\n');
+
+        loop {
+            macro_rules! eat(
+                () => {
+                    if let Some(current) = it.next() {
+                        buffer[0] = buffer[1];
+                        buffer[1] = current;
+                    } else {
+                        buffer[0] = buffer[1];
+                        buffer[1] = '\n';
+                        if buffer[0] == '\n' && buffer[1] == '\n' {
+                            break;
+                        }
+                    }
+                }
+            );
+
+            match (buffer[0], buffer[1], in_string) {
+                (' ', _, false) => {
+                    if !sb.is_empty() {
+                        strings.push(String::from_iter(&sb));
+                        sb.clear();
+                    }
+                }
+                ('\\', '"', _) => {
+                    eat!();
+                    sb.push('"');
+                }
+                ('\\', c, _) => {
+                    panic!("unknown escape char '{}' in string {:?}", c, input);
+                }
+                ('"', '"', false) => {
+                    eat!();
+                    strings.push(String::new());
+                }
+                ('"', '"', true) => {
+                    panic!("unescaped quote in string {:?}", input);
+                }
+                ('"', _, true) => {
+                    if !sb.is_empty() {
+                        strings.push(String::from_iter(&sb));
+                        sb.clear();
+                    }
+                    in_string = false;
+                }
+                ('"', _, false) => {
+                    in_string = true;
+                }
+                (c, ..) => {
+                    sb.push(c);
+                }
+            }
+
+            eat!();
+        }
+        if !sb.is_empty() {
             strings.push(String::from_iter(&sb));
         }
         strings
@@ -317,11 +386,15 @@ impl Executor {
                     .take(1)
                     .next()
                     .expect("Command ':e' requires a process to execute");
-                let args: Vec<String> = parts
+
+                let args = parts
                     .borrow_mut()
                     .map(|p| p.to_owned())
                     .filter(|p| !p.is_empty())
-                    .collect();
+                    .collect::<Vec<String>>()
+                    .join(" ");
+                let args = Self::get_execute_strings(args);
+
                 //println!("process: {:?}, args: {:?}", process, args);
                 let result = std::process::Command::new(process)
                     .args(args)
@@ -776,5 +849,17 @@ mod tests {
 
         let mut executor = Executor::new(script.into());
         executor.execute();
+    }
+
+    #[test]
+    pub fn get_execute_strings() {
+        let strings = Executor::get_execute_strings("/c echo \"hello \\\"world\"".into());
+        assert_eq!(
+            strings,
+            vec!["/c", "echo", "hello \"world"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>()
+        );
     }
 }
