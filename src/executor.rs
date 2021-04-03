@@ -44,6 +44,46 @@ pub struct Executor {
     announcing_phases: bool,
 }
 
+const AND: &'static str = ":and";
+const CONTAINS: &'static str = ":contains";
+const CPD: &'static str = ":cpd";
+const CD: &'static str = ":cd";
+const CP: &'static str = ":cp";
+const EP: &'static str = ":ep";
+const EQ: &'static str = ":eq";
+const E: &'static str = ":e";
+const GOTOT: &'static str = ":gotot";
+const GOTO: &'static str = ":goto";
+const HASARG: &'static str = ":hasarg";
+const HASVAR: &'static str = ":hasvar";
+const HV: &'static str = ":hv";
+const H: &'static str = ":h";
+const ISE: &'static str = ":ise";
+const ISS: &'static str = ":iss";
+const IF: &'static str = ":if";
+const LEO: &'static str = ":leo";
+const LOE: &'static str = ":loe";
+const LOS: &'static str = ":los";
+const LF: &'static str = ":lf";
+const LT: &'static str = ":lt";
+const L: &'static str = ":l";
+const MV: &'static str = ":mv";
+const NEQ: &'static str = ":neq";
+const NOT: &'static str = ":not";
+const OR: &'static str = ":or";
+const QEF: &'static str = ":qef";
+const QET: &'static str = ":qet";
+const QOEE: &'static str = ":qoee";
+const QOE: &'static str = ":qoe";
+const QE: &'static str = ":qe";
+const QF: &'static str = ":qf";
+const QT: &'static str = ":qt";
+const Q: &'static str = ":q";
+const SILENT: &'static str = ":silent";
+const SETF: &'static str = ":setf";
+const SETT: &'static str = ":sett";
+const WS: &'static str = ":ws";
+
 impl Executor {
     pub fn new(script: String) -> Executor {
         let script = preprocessor::perform_imports(script);
@@ -357,198 +397,38 @@ impl Executor {
         strings
     }
 
+    fn get_execution_args(input: String) -> (String, Vec<String>) {
+        let mut parts = input.split(' ');
+        let process = parts
+            .borrow_mut()
+            .take(1)
+            .next()
+            .expect("Command ':ep' requires a process to execute");
+
+        let args = parts
+            .borrow_mut()
+            .map(|p| p.to_owned())
+            .filter(|p| !p.is_empty())
+            .collect::<Vec<String>>()
+            .join(" ");
+        let args = Self::get_execute_strings(args);
+        (process.to_owned(), args)
+    }
+
     /// return value is "should_quit"
     fn execute_command(&mut self, command: &str, input: String) -> bool {
         match command {
-            ":l" => {
-                println!("{}", input);
-            }
-            ":lt" => {
-                if self.get_if_result(":lt") {
-                    println!("{}", input);
-                }
-            }
-            ":lf" => {
-                if !self.get_if_result(":lf") {
-                    println!("{}", input);
-                }
-            }
-            ":ws" => {
-                let seconds = input
-                    .parse::<u64>()
-                    .expect("expect seconds as argument in :ws");
-                sleep(std::time::Duration::new(seconds, 0));
-            }
-            ":e" => {
-                let mut parts = input.split(' ');
-                let process = parts
-                    .borrow_mut()
-                    .take(1)
-                    .next()
-                    .expect("Command ':e' requires a process to execute");
-
-                let args = parts
-                    .borrow_mut()
-                    .map(|p| p.to_owned())
-                    .filter(|p| !p.is_empty())
-                    .collect::<Vec<String>>()
-                    .join(" ");
-                let args = Self::get_execute_strings(args);
-
-                //println!("process: {:?}, args: {:?}", process, args);
-                let result = std::process::Command::new(process)
-                    .args(args)
-                    .output()
-                    .unwrap_or_else(|_| panic!("process failed to execute (:e {})", input));
-
-                self.last_proc_err =
-                    String::from_utf8(result.stderr).expect("stderr was not UTF-8");
-                self.last_proc_out =
-                    String::from_utf8(result.stdout).expect("stdout was not UTF-8");
-                self.last_proc_code = result
-                    .status
-                    .code()
-                    .expect("failed to retrieve exit code from process");
-            }
-            ":leo" => {
-                if !self.last_proc_err.is_empty() {
-                    println!("{}", self.last_proc_err);
-                }
-                if !self.last_proc_out.is_empty() {
-                    println!("{}", self.last_proc_out);
-                }
-            }
-            ":hasarg" => {
-                if Self::get_args()
-                    .split(' ')
-                    .any(|ar| input.split(' ').any(|inp| ar == inp))
-                {
-                    self.add_if_result(true);
-                } else {
-                    self.add_if_result(false);
-                }
-            }
-            ":hasvar" => {
-                if self.variables.contains_key(&input) {
-                    self.add_if_result(true);
-                } else {
-                    self.add_if_result(false);
-                }
-            }
-            ":hv" | ":help" => {
-                Self::print_help(true);
-                return true;
-            }
-            ":h" => {
-                Self::print_help(false);
-                return true;
-            }
-            ":loe" => {
-                if self.last_proc_code != 0 {
-                    println!("{}", input);
-                }
-            }
-            ":qoe" => {
-                if self.last_proc_code != 0 {
-                    return true;
-                }
-            }
-            ":gotot" => {
-                if self.get_if_result(":gotot") {
-                    self.goto_phase = Some(input);
-                }
-            }
-            ":goto" => {
-                self.goto_phase = Some(input);
-            }
-            ":if" => {
-                self.last_if_test_value = input;
-            }
-            ":eq" => {
-                self.add_if_result(self.last_if_test_value == input);
-            }
-            ":neq" => {
-                self.add_if_result(self.last_if_test_value != input);
-            }
-            ":contains" => {
-                self.add_if_result(self.last_if_test_value.contains(&input));
-            }
-            ":not" => {
-                let last_res = self.get_if_result(":not");
-                self.add_if_result(!last_res);
-            }
-            ":and" => {
+            AND => {
                 self.awaiting_evaluation = Some(Evaluation::And);
             }
-            ":or" => {
-                self.awaiting_evaluation = Some(Evaluation::Or);
+            CONTAINS => {
+                self.add_if_result(self.last_if_test_value.contains(&input));
             }
-            ":silent" => {
-                self.announcing_phases = false;
+            CD => {
+                std::env::set_current_dir(&input)
+                    .unwrap_or_else(|_| panic!("failed to set current dir to '{}'", input));
             }
-            ":sett" => {
-                if self.get_if_result(":sett") {
-                    let mut parts = input.split(' ');
-                    let var = parts
-                        .borrow_mut()
-                        .take(1)
-                        .next()
-                        .expect("Command ':sett' requires a variable to set")
-                        .to_string();
-                    let value: String = parts
-                        .borrow_mut()
-                        .map(|p| p.to_owned())
-                        .filter(|p| !p.is_empty())
-                        .collect::<Vec<String>>()
-                        .join(" ");
-
-                    self.variables
-                        .entry(var)
-                        .and_modify(|v| *v = value.clone())
-                        .or_insert_with(|| value);
-                }
-            }
-            ":setf" => {
-                if !self.get_if_result(":setf") {
-                    let mut parts = input.split(' ');
-                    let var = parts
-                        .borrow_mut()
-                        .take(1)
-                        .next()
-                        .expect("Command ':setf' requires a variable to set")
-                        .to_string();
-                    let value: String = parts
-                        .borrow_mut()
-                        .map(|p| p.to_owned())
-                        .filter(|p| !p.is_empty())
-                        .collect::<Vec<String>>()
-                        .join(" ");
-
-                    self.variables
-                        .entry(var)
-                        .and_modify(|v| *v = value.clone())
-                        .or_insert_with(|| value);
-                }
-            }
-            ":qt" => {
-                if self.get_if_result(":qt") {
-                    return true;
-                }
-            }
-            ":qf" => {
-                if !self.get_if_result(":qf") {
-                    return true;
-                }
-            }
-            ":q" => {
-                return true;
-            }
-            ":los" => {
-                if self.last_proc_code == 0 {
-                    println!("{}", input);
-                }
-            }
-            ":cpd" => {
+            CPD => {
                 todo!();
                 /*
                 let parts = self.get_strings(input);
@@ -560,7 +440,155 @@ impl Executor {
                 );
                 */
             }
-            ":mv" => {
+            CP => {
+                let parts = self.get_strings(input);
+                let mut it = parts.iter();
+                let source = it
+                    .next()
+                    .unwrap_or_else(|| panic!("missing source argument in {}", CP));
+                let target = it
+                    .next()
+                    .unwrap_or_else(|| panic!("missing target argument in {}", CP));
+                if let Ok(is_dir) = std::fs::metadata(source).map(|m| m.is_dir()) {
+                    if is_dir {
+                        panic!(
+                            "'{}' is a directory, use {} to copy directories",
+                            source, CPD
+                        );
+                    }
+                }
+                std::fs::copy(source, target).unwrap_or_else(|_| {
+                    panic!("failed to copy file from '{}' to '{}'", source, target)
+                });
+            }
+            EP => {
+                let input_clone = input.clone();
+                let (process, args) = Self::get_execution_args(input);
+
+                //println!("process: {:?}, args: {:?}", process, args);
+                let mut result = std::process::Command::new(process)
+                    .args(args)
+                    .stdout(std::process::Stdio::inherit())
+                    .stderr(std::process::Stdio::inherit())
+                    .spawn()
+                    .unwrap_or_else(|_| panic!("process failed to execute (:ep {})", input_clone));
+
+                self.last_proc_code = result
+                    .wait()
+                    .unwrap_or_else(|_| {
+                        panic!("failed to wait on process exit (:ep {})", input_clone)
+                    })
+                    .code()
+                    .expect("failed to retrieve exit code from process");
+            }
+            EQ => {
+                self.add_if_result(self.last_if_test_value == input);
+            }
+            E => {
+                let input_clone = input.clone();
+                let (process, args) = Self::get_execution_args(input);
+
+                //println!("process: {:?}, args: {:?}", process, args);
+                let result = std::process::Command::new(process)
+                    .args(args)
+                    .output()
+                    .unwrap_or_else(|_| panic!("process failed to execute (:e {})", input_clone));
+
+                self.last_proc_err =
+                    String::from_utf8(result.stderr).expect("stderr was not UTF-8");
+                self.last_proc_out =
+                    String::from_utf8(result.stdout).expect("stdout was not UTF-8");
+                self.last_proc_code = result.status.code().unwrap_or_else(|| {
+                    panic!(
+                        "failed to retrieve exit code from process when running :e {}",
+                        input_clone
+                    )
+                });
+            }
+            GOTOT => {
+                if self.get_if_result(GOTOT) {
+                    self.goto_phase = Some(input);
+                }
+            }
+            GOTO => {
+                self.goto_phase = Some(input);
+            }
+            HASARG => {
+                if Self::get_args()
+                    .split(' ')
+                    .any(|ar| input.split(' ').any(|inp| ar == inp))
+                {
+                    self.add_if_result(true);
+                } else {
+                    self.add_if_result(false);
+                }
+            }
+            HASVAR => {
+                if self.variables.contains_key(&input) {
+                    self.add_if_result(true);
+                } else {
+                    self.add_if_result(false);
+                }
+            }
+            HV | ":help" => {
+                Self::print_help(true);
+                return true;
+            }
+            H => {
+                Self::print_help(false);
+                return true;
+            }
+            ISE => {
+                if self.last_proc_code != 0 {
+                    self.add_if_result(true);
+                } else {
+                    self.add_if_result(false);
+                }
+            }
+            ISS => {
+                if self.last_proc_code == 0 {
+                    self.add_if_result(true);
+                } else {
+                    self.add_if_result(false);
+                }
+            }
+            IF => {
+                self.last_if_test_value = input;
+            }
+            LEO => {
+                // _l_og std_e_rr std_o_ut
+                if !self.last_proc_err.is_empty() {
+                    println!("{}", self.last_proc_err);
+                }
+                if !self.last_proc_out.is_empty() {
+                    println!("{}", self.last_proc_out);
+                }
+            }
+            LOE => {
+                // log on error
+                if self.last_proc_code != 0 {
+                    println!("{}", input);
+                }
+            }
+            LOS => {
+                if self.last_proc_code == 0 {
+                    println!("{}", input);
+                }
+            }
+            LF => {
+                if !self.get_if_result(LF) {
+                    println!("{}", input);
+                }
+            }
+            LT => {
+                if self.get_if_result(LT) {
+                    println!("{}", input);
+                }
+            }
+            L => {
+                println!("{}", input);
+            }
+            MV => {
                 let parts = self.get_strings(input);
                 let mut it = parts.iter();
                 let source = it.next().expect("missing source name argument in :mv");
@@ -568,19 +596,104 @@ impl Executor {
                 std::fs::rename(source, target)
                     .unwrap_or_else(|_| panic!("failed to move from '{}' to '{}'", source, target));
             }
-            ":cp" => {
-                let parts = self.get_strings(input);
-                let mut it = parts.iter();
-                let source = it.next().expect("missing source argument in :cp");
-                let target = it.next().expect("missing target argument in :cp");
-                if let Ok(is_dir) = std::fs::metadata(source).map(|m| m.is_dir()) {
-                    if is_dir {
-                        panic!("'{}' is a directory, use :cpd to copy directories", source);
-                    }
+            NEQ => {
+                self.add_if_result(self.last_if_test_value != input);
+            }
+            NOT => {
+                let last_res = self.get_if_result(NOT);
+                self.add_if_result(!last_res);
+            }
+            OR => {
+                self.awaiting_evaluation = Some(Evaluation::Or);
+            }
+            QOEE => {
+                if self.last_proc_code != 0 {
+                    std::process::exit(1);
                 }
-                std::fs::copy(source, target).unwrap_or_else(|_| {
-                    panic!("failed to copy file from '{}' to '{}'", source, target)
-                });
+            }
+            QEF => {
+                if !self.get_if_result(QEF) {
+                    std::process::exit(1);
+                }
+            }
+            QET => {
+                if self.get_if_result(QET) {
+                    std::process::exit(1);
+                }
+            }
+            QOE => {
+                if self.last_proc_code != 0 {
+                    return true;
+                }
+            }
+            QE => {
+                std::process::exit(1);
+            }
+            QF => {
+                if !self.get_if_result(QF) {
+                    return true;
+                }
+            }
+            QT => {
+                if self.get_if_result(QT) {
+                    return true;
+                }
+            }
+            Q => {
+                return true;
+            }
+            SILENT => {
+                self.announcing_phases = false;
+            }
+            SETF => {
+                if !self.get_if_result(SETF) {
+                    let mut parts = input.split(' ');
+                    let var = parts
+                        .borrow_mut()
+                        .take(1)
+                        .next()
+                        .unwrap_or_else(|| panic!("Command '{}' requires a variable to set", SETF))
+                        .to_string();
+                    let value: String = parts
+                        .borrow_mut()
+                        .map(|p| p.to_owned())
+                        .filter(|p| !p.is_empty())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+
+                    self.variables
+                        .entry(var)
+                        .and_modify(|v| *v = value.clone())
+                        .or_insert_with(|| value);
+                }
+            }
+            SETT => {
+                if self.get_if_result(SETT) {
+                    let mut parts = input.split(' ');
+                    let var = parts
+                        .borrow_mut()
+                        .take(1)
+                        .next()
+                        .unwrap_or_else(|| panic!("Command '{}' requires a variable to set", SETT))
+                        .to_string();
+                    let value: String = parts
+                        .borrow_mut()
+                        .map(|p| p.to_owned())
+                        .filter(|p| !p.is_empty())
+                        .collect::<Vec<String>>()
+                        .join(" ");
+
+                    self.variables
+                        .entry(var)
+                        .and_modify(|v| *v = value.clone())
+                        .or_insert_with(|| value);
+                }
+            }
+            WS => {
+                let seconds = input
+                    .parse::<u64>()
+                    .unwrap_or_else(|_| panic!("expect seconds as argument in {}", WS));
+                sleep(std::time::Duration::new(seconds, 0));
             }
             c => unimplemented!("Command not found '{}'", c),
         };
@@ -591,15 +704,15 @@ impl Executor {
         if let Some(eval) = &self.awaiting_evaluation {
             match eval {
                 Evaluation::And => {
-                    let last_value = self
-                        .last_if_result
-                        .expect(":and requires a previous result to compare with");
+                    let last_value = self.last_if_result.unwrap_or_else(|| {
+                        panic!("{} requires a previous result to compare with", AND)
+                    });
                     self.last_if_result = Some(last_value && value);
                 }
                 Evaluation::Or => {
-                    let last_value = self
-                        .last_if_result
-                        .expect(":or requires a previous result to compare with");
+                    let last_value = self.last_if_result.unwrap_or_else(|| {
+                        panic!("{} requires a previous result to compare with", OR)
+                    });
                     self.last_if_result = Some(last_value || value);
                 }
             }
@@ -619,156 +732,190 @@ impl Executor {
             println!("{:<20}Example", "Command");
         }
 
-        Self::help(verbose, ":l", "logs specified message", ":l hello world");
         Self::help(
             verbose,
-            ":lt",
-            "logs specified message if :if returned true",
-            ":lt was true!",
-        );
-        Self::help(
-            verbose,
-            ":lf",
-            "logs specified message if :if returned false",
-            ":lf was false!",
-        );
-        Self::help(verbose, ":ws", "waits seconds", ":ws 1");
-        Self::help(verbose, ":e", "executes process", ":e cargo build");
-        Self::help(verbose, ":leo", "log stdout and stderr", ":leo");
-        Self::help(
-            verbose,
-            ":hasarg",
-            "sets last result to true if the specified argument(s) were passed to lb",
-            ":hasarg test-only -t",
-        );
-        Self::help(
-            verbose,
-            ":hasvar",
-            "sets last result to true if the specified variable has been set (do not use $ unless you need to)",
-            ":hasvar test",
-        );
-        Self::help(
-            verbose,
-            ":loe",
-            "logs specified message if last :e returned error code",
-            ":loe process returned error: $stderr",
-        );
-        Self::help(
-            verbose,
-            ":los",
-            "logs specified message if last :e returned success code",
-            ":los process was successful: $stdout",
-        );
-        Self::help(
-            verbose,
-            ":qoe",
-            "quits script if last :e returned error code",
-            ":qoe",
-        );
-        Self::help(
-            verbose,
-            ":gotot",
-            "goes to specified phase if last evaluation command returned true",
-            ":gotot @build-only",
-        );
-        Self::help(verbose, ":goto", "goes to specified phase", ":goto @end");
-        Self::help(
-            verbose,
-            ":if",
-            "sets the value to be evaluated by the following command",
-            ":if $args",
-        );
-        Self::help(
-            verbose,
-            ":eq",
-            "compares the value in :if to the value specified in :eq (is equal)",
-            ":eq hello",
-        );
-        Self::help(
-            verbose,
-            ":neq",
-            "compares the value in :if to the value specified in :neq (is not equal)",
-            ":neq hello",
-        );
-        Self::help(
-            verbose,
-            ":contains",
-            "returns true if the value in :if contains the specified string",
-            ":contains build-only",
-        );
-        Self::help(
-            verbose,
-            ":not",
-            "negates the result of the last comparison",
-            ":not",
-        );
-        Self::help(
-            verbose,
-            ":and",
+            AND,
             "returns true if the last result and the following result are true",
-            ":and",
+            "",
         );
         Self::help(
             verbose,
-            ":or",
-            "returns true if the last result or the following result are true",
-            ":or",
+            CONTAINS,
+            "returns true if the value in :if contains the specified string",
+            "build-only",
         );
+        Self::help(verbose, CPD, "(TODO) copies directory", "(TODO)");
         Self::help(
             verbose,
-            ":qt",
-            "quits script if last :if returned true",
-            ":qt",
-        );
-        Self::help(
-            verbose,
-            ":qf",
-            "quits script if last :if returned false",
-            ":qf",
-        );
-        Self::help(
-            verbose,
-            ":sett",
-            "sets a variable if last :if returned true (do not prefix with $ unless you're setting the variable in the variable)",
-            ":sett profile \"--release\"",
-        );
-        Self::help(
-            verbose,
-            ":setf",
-            "sets a variable if last :if returned false (do not prefix with $ unless you're setting the variable in the variable)",
-            ":setf profile \"\"",
-        );
-        Self::help(verbose, ":q", "quits script", ":q");
-        Self::help(verbose, ":cpd", "(TODO) copies directory", "(TODO)");
-        Self::help(
-            verbose,
-            ":mv",
-            "moves the specified file",
-            ":mv \"C:/1.txt\" \"C:/2.txt\"",
-        );
-        Self::help(
-            verbose,
-            ":cp",
+            CP,
             "copies the specified file",
-            ":cp \"C:/1.txt\" \"C:/2.txt\"",
+            "\"C:/1.txt\" \"C:/2.txt\"",
         );
         Self::help(
             verbose,
-            ":silent",
-            "stops printing \"Starting phase[...]\"",
-            ":silent",
+            CD,
+            "sets the current working directory",
+            "test_dir",
         );
-        Self::help(verbose, ":hv", "shows verbose help", ":hv");
-        Self::help(verbose, ":h", "shows minimal help", ":h");
+        Self::help(
+            verbose,
+            EP,
+            "executes process while inheriting stdout and stderr from lb.exe",
+            "cargo build",
+        );
+        Self::help(
+            verbose,
+            EQ,
+            "compares the value in :if to the value specified in :eq (is equal)",
+            "hello",
+        );
+        Self::help(verbose, E, "executes process", "cargo build");
+        Self::help(
+            verbose,
+            GOTOT,
+            "goes to specified phase if last evaluation command returned true",
+            "@build-only",
+        );
+        Self::help(verbose, GOTO, "goes to specified phase", "@end");
+        Self::help(
+            verbose,
+            HASARG,
+            "sets last result to true if the specified argument(s) were passed to lb",
+            "test-only -t",
+        );
+        Self::help(
+            verbose,
+            HASVAR,
+            "sets last result to true if the specified variable has been set (do not use $ unless you need to)",
+            "test",
+        );
+        Self::help(verbose, HV, "shows verbose help", "");
+        Self::help(verbose, H, "shows minimal help", "");
+        Self::help(
+            verbose,
+            ISE,
+            "sets last result to true if the last process exited with an error exit code",
+            "",
+        );
+        Self::help(
+            verbose,
+            ISS,
+            "sets last result to true if the last process exited with a success exit code",
+            "",
+        );
+        Self::help(
+            verbose,
+            IF,
+            "sets the value to be evaluated by the following command",
+            "$args",
+        );
+        Self::help(verbose, LEO, "log stdout and stderr", "");
+        Self::help(
+            verbose,
+            LOE,
+            "logs specified message if last :e returned error code",
+            "process returned error: $stderr",
+        );
+        Self::help(
+            verbose,
+            LOS,
+            "logs specified message if last :e returned success code",
+            "process was successful: $stdout",
+        );
+        Self::help(
+            verbose,
+            LF,
+            "logs specified message if :if returned false",
+            "was false!",
+        );
+        Self::help(
+            verbose,
+            LT,
+            "logs specified message if :if returned true",
+            "was true!",
+        );
+        Self::help(verbose, L, "logs specified message", "hello world");
+        Self::help(
+            verbose,
+            MV,
+            "moves the specified file",
+            "\"C:/1.txt\" \"C:/2.txt\"",
+        );
+        Self::help(
+            verbose,
+            NEQ,
+            "compares the value in :if to the value specified in :neq (is not equal)",
+            "hello",
+        );
+        Self::help(
+            verbose,
+            NOT,
+            "negates the result of the last comparison",
+            "",
+        );
+        Self::help(
+            verbose,
+            OR,
+            "returns true if the last result or the following result are true",
+            "",
+        );
+        Self::help(
+            verbose,
+            QOEE,
+            "quits script with exit code 1 (error) if last :e returned error code",
+            "",
+        );
+        Self::help(
+            verbose,
+            QOE,
+            "quits script if last :e returned error code",
+            "",
+        );
+        Self::help(
+            verbose,
+            QEF,
+            "quits script with exit code 1 (error) if last :if returned false",
+            "",
+        );
+        Self::help(
+            verbose,
+            QET,
+            "quits script with exit code 1 (error) if last :if returned true",
+            "",
+        );
+        Self::help(verbose, QF, "quits script if last :if returned false", "");
+        Self::help(verbose, QT, "quits script if last :if returned true", "");
+        Self::help(verbose, QE, "quits script with exit code 1 (error)", "");
+        Self::help(verbose, Q, "quits script", "");
+        Self::help(
+            verbose,
+            SETF,
+            "sets a variable if last :if returned false (do not prefix with $ unless you're setting the variable in the variable)",
+            "profile \"\"",
+        );
+        Self::help(
+            verbose,
+            SETT,
+            "sets a variable if last :if returned true (do not prefix with $ unless you're setting the variable in the variable)",
+            "profile \"--release\"",
+        );
+        Self::help(
+            verbose,
+            SILENT,
+            "stops printing \"Starting phase[...]\"",
+            "",
+        );
+        Self::help(verbose, WS, "waits seconds", "1");
     }
 
-    fn help(verbose: bool, c: &str, h: &str, e: &str) {
+    /// `example` should not start with the command name, as it is added by this fn
+    fn help(verbose: bool, command: &str, help_text: &str, example: &str) {
         if verbose {
             println!("---------------------------");
-            println!("{:<20}{}", c, e);
-            println!("| {}", h);
+            println!("{:<20}{} {}", command, command, example);
+            println!("| {}", help_text);
         } else {
-            println!("{:<20}{}", c, e);
+            println!("{:<20}{} {}", command, command, example);
         }
     }
 }
