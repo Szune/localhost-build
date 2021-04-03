@@ -257,8 +257,7 @@ impl Lexer {
                         self.eat();
                     }
                     _ => {
-                        sb.push(self.buffer[0]);
-                        self.eat();
+                        sb.push(self.buffer[0]); // push '\\'
                         self.eat();
                     }
                 },
