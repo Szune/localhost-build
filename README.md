@@ -1,4 +1,4 @@
-# localhost-build 0.3.0
+# localhost-build 0.4.0
 A basic build scripting language very quickly thrown together, it's a hacky mess.
 
 At least it was fun to create. (It's still a work in progress though!)
@@ -6,7 +6,7 @@ At least it was fun to create. (It's still a work in progress though!)
 ## Installing
 1. Clone project
 2. Build using cargo build
-3. Place in the PATH environment variable
+3. Place directory containing `lb.exe` in the PATH environment variable
 
 ## Using in a project
 Add a file called `build.lb` in the root directory of the project.

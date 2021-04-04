@@ -15,13 +15,13 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::crc32::Crc32Table;
 use crate::lexer::Lexer;
-use crate::preprocessor;
 use crate::token::*;
+use crate::{preprocessor, str_utils};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use std::path::PathBuf;
 use std::thread::sleep;
 
 pub enum Evaluation {
@@ -42,47 +42,51 @@ pub struct Executor {
     groups: HashMap<String, GroupDefinition>,
     executing_group_args: HashMap<String, String>,
     announcing_phases: bool,
+    cache: HashMap<String, u32>,
+    crc_table: Crc32Table,
 }
 
-const AND: &'static str = ":and";
-const CONTAINS: &'static str = ":contains";
-const CPD: &'static str = ":cpd";
-const CD: &'static str = ":cd";
-const CP: &'static str = ":cp";
-const EP: &'static str = ":ep";
-const EQ: &'static str = ":eq";
-const E: &'static str = ":e";
-const GOTOT: &'static str = ":gotot";
-const GOTO: &'static str = ":goto";
-const HASARG: &'static str = ":hasarg";
-const HASVAR: &'static str = ":hasvar";
-const HV: &'static str = ":hv";
-const H: &'static str = ":h";
-const ISE: &'static str = ":ise";
-const ISS: &'static str = ":iss";
-const IF: &'static str = ":if";
-const LEO: &'static str = ":leo";
-const LOE: &'static str = ":loe";
-const LOS: &'static str = ":los";
-const LF: &'static str = ":lf";
-const LT: &'static str = ":lt";
-const L: &'static str = ":l";
-const MV: &'static str = ":mv";
-const NEQ: &'static str = ":neq";
-const NOT: &'static str = ":not";
-const OR: &'static str = ":or";
-const QEF: &'static str = ":qef";
-const QET: &'static str = ":qet";
-const QOEE: &'static str = ":qoee";
-const QOE: &'static str = ":qoe";
-const QE: &'static str = ":qe";
-const QF: &'static str = ":qf";
-const QT: &'static str = ":qt";
-const Q: &'static str = ":q";
-const SILENT: &'static str = ":silent";
-const SETF: &'static str = ":setf";
-const SETT: &'static str = ":sett";
-const WS: &'static str = ":ws";
+const AND: &str = ":and";
+const CONTAINS: &str = ":contains";
+const CPC: &str = ":cpc";
+const CPD: &str = ":cpd";
+const CD: &str = ":cd";
+const CP: &str = ":cp";
+const EP: &str = ":ep";
+const EQ: &str = ":eq";
+const E: &str = ":e";
+const GOTOT: &str = ":gotot";
+const GOTO: &str = ":goto";
+const HASARG: &str = ":hasarg";
+const HASVAR: &str = ":hasvar";
+const HV: &str = ":hv";
+const H: &str = ":h";
+const ISE: &str = ":ise";
+const ISS: &str = ":iss";
+const IF: &str = ":if";
+const LEO: &str = ":leo";
+const LOE: &str = ":loe";
+const LOS: &str = ":los";
+const LF: &str = ":lf";
+const LT: &str = ":lt";
+const L: &str = ":l";
+const MV: &str = ":mv";
+const NEQ: &str = ":neq";
+const NOT: &str = ":not";
+const OR: &str = ":or";
+const QEF: &str = ":qef";
+const QET: &str = ":qet";
+const QOEE: &str = ":qoee";
+const QOE: &str = ":qoe";
+const QE: &str = ":qe";
+const QF: &str = ":qf";
+const QT: &str = ":qt";
+const Q: &str = ":q";
+const SILENT: &str = ":silent";
+const SETF: &str = ":setf";
+const SETT: &str = ":sett";
+const WC: &str = ":wc";
+const WS: &str = ":ws";
 
 impl Executor {
     pub fn new(script: String) -> Executor {
@@ -100,6 +104,32 @@ impl Executor {
             groups: HashMap::new(),
             executing_group_args: HashMap::new(),
             announcing_phases: true,
+            cache: HashMap::new(),
+            crc_table: Crc32Table::default(),
+        };
+
+        let preprocessor_lexer = Lexer::new(script, true);
+        executor.groups = preprocessor::run(preprocessor_lexer);
+        executor
+    }
+
+    pub fn with_cache(script: String, cache: HashMap<String, u32>) -> Executor {
+        let script = preprocessor::perform_imports(script);
+        let mut executor = Executor {
+            lexer: Lexer::new(script.clone(), false),
+            last_proc_out: String::new(),
+            last_proc_err: String::new(),
+            last_proc_code: 0,
+            last_if_result: None,
+            awaiting_evaluation: None,
+            last_if_test_value: "".into(),
+            goto_phase: None,
+            variables: HashMap::new(),
+            groups: HashMap::new(),
+            executing_group_args: HashMap::new(),
+            announcing_phases: true,
+            cache,
+            crc_table: Crc32Table::default(),
         };
 
         let preprocessor_lexer = Lexer::new(script, true);
@@ -179,7 +209,7 @@ impl Executor {
 
     pub fn execute(&mut self) {
         let mut token = self.lexer.next_token();
-        while token.kind != TokenKind::EndOfText {
+        'execute_loop: while token.kind != TokenKind::EndOfText {
             //println!("Token: {:?}", token);
             match token.kind {
                 TokenKind::Phase(ref s) => {
@@ -188,7 +218,7 @@ impl Executor {
                             self.goto_phase = None;
                         } else {
                             token = self.lexer.next_token();
-                            continue;
+                            continue 'execute_loop;
                         }
                     }
                     if self.announcing_phases {
@@ -198,7 +228,7 @@ impl Executor {
                 TokenKind::ExecuteGroup(ref s, ref args) => {
                     if self.goto_phase.is_some() {
                         token = self.lexer.next_token();
-                        continue;
+                        continue 'execute_loop;
                     }
                     let group = self
                         .groups
@@ -206,13 +236,13 @@ impl Executor {
                         .unwrap_or_else(|| panic!("Group {} has not been defined anywhere", s))
                         .clone();
                     if self.execute_group(&group, args) {
-                        return;
+                        break 'execute_loop;
                     }
                 }
                 TokenKind::Command(ref s) => {
                     if self.goto_phase.is_some() {
                         token = self.lexer.next_token();
-                        continue;
+                        continue 'execute_loop;
                     }
                     let interp_str = self.interpret_string(s.clone());
                     let mut parts = interp_str.split(' ');
@@ -231,7 +261,7 @@ impl Executor {
                     }
                     let input = String::from_iter(sb);
                     if self.execute_command(command, input) {
-                        return;
+                        break 'execute_loop;
                     }
                 }
                 TokenKind::Variable(var_name, value) => {
@@ -251,6 +281,24 @@ impl Executor {
         if let Some(goto) = &self.goto_phase {
             println!("goto could not find phase '{}'", goto);
         }
+
+        self.write_cache();
+    }
+
+    fn write_cache(&mut self) {
+        if self.cache.is_empty() {
+            return;
+        }
+
+        let cache = self
+            .cache
+            .iter()
+            .map(str_utils::get_cache_line)
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        std::fs::write("build.lb.cache", cache)
+            .unwrap_or_else(|_| panic!("Failed to save build.lb.cache"));
     }
 
     fn execute_group(&mut self, group: &GroupDefinition, args: &[String]) -> bool {
@@ -328,75 +376,6 @@ impl Executor {
         strings
     }
 
-    fn get_execute_strings(input: String) -> Vec<String> {
-        let mut strings = Vec::new();
-        let mut sb = Vec::new();
-        let mut it = input.chars();
-        let mut buffer = ['\n', '\n'];
-        let mut in_string = false;
-        buffer[0] = it.next().unwrap_or('\n');
-        buffer[1] = it.next().unwrap_or('\n');
-
-        loop {
-            macro_rules! eat(
-                () => {
-                    if let Some(current) = it.next() {
-                        buffer[0] = buffer[1];
-                        buffer[1] = current;
-                    } else {
-                        buffer[0] = buffer[1];
-                        buffer[1] = '\n';
-                        if buffer[0] == '\n' && buffer[1] == '\n' {
-                            break;
-                        }
-                    }
-                }
-            );
-
-            match (buffer[0], buffer[1], in_string) {
-                (' ', _, false) => {
-                    if !sb.is_empty() {
-                        strings.push(String::from_iter(&sb));
-                        sb.clear();
-                    }
-                }
-                ('\\', '"', _) => {
-                    eat!();
-                    sb.push('"');
-                }
-                ('\\', c, _) => {
-                    panic!("unknown escape char '{}' in string {:?}", c, input);
-                }
-                ('"', '"', false) => {
-                    eat!();
-                    strings.push(String::new());
-                }
-                ('"', '"', true) => {
-                    panic!("unescaped quote in string {:?}", input);
-                }
-                ('"', _, true) => {
-                    if !sb.is_empty() {
-                        strings.push(String::from_iter(&sb));
-                        sb.clear();
-                    }
-                    in_string = false;
-                }
-                ('"', _, false) => {
-                    in_string = true;
-                }
-                (c, ..) => {
-                    sb.push(c);
-                }
-            }
-
-            eat!();
-        }
-        if !sb.is_empty() {
-            strings.push(String::from_iter(&sb));
-        }
-        strings
-    }
-
     fn get_execution_args(input: String) -> (String, Vec<String>) {
         let mut parts = input.split(' ');
         let process = parts
@@ -411,7 +390,7 @@ impl Executor {
             .filter(|p| !p.is_empty())
             .collect::<Vec<String>>()
             .join(" ");
-        let args = Self::get_execute_strings(args);
+        let args = str_utils::get_line_strings(args);
         (process.to_owned(), args)
     }
 
@@ -427,6 +406,49 @@ impl Executor {
             CD => {
                 std::env::set_current_dir(&input)
                     .unwrap_or_else(|_| panic!("failed to set current dir to '{}'", input));
+            }
+            CPC => {
+                let parts = self.get_strings(input);
+                let mut it = parts.iter();
+                let source = it
+                    .next()
+                    .unwrap_or_else(|| panic!("missing source argument in {}", CPC));
+                let target = it
+                    .next()
+                    .unwrap_or_else(|| panic!("missing target argument in {}", CPC));
+                if let Ok(is_dir) = std::fs::metadata(source).map(|m| m.is_dir()) {
+                    if is_dir {
+                        panic!(
+                            "'{}' is a directory, use {} to copy directories",
+                            source, CPD
+                        );
+                    }
+                }
+
+                if self.cache.contains_key(target) {
+                    // target has been cached from before, check if source has same hash
+                    let crc = self.cache.get(target).unwrap();
+                    if std::fs::read(source)
+                        .map(|b| self.crc_table.compare(&b, *crc))
+                        .unwrap_or(false)
+                    {
+                        // no change, skip copy
+                        return false;
+                    }
+                }
+
+                std::fs::copy(source, target).unwrap_or_else(|_| {
+                    panic!("failed to copy file from '{}' to '{}'", source, target)
+                });
+
+                // update/store crc32 of target
+                let target_crc = std::fs::read(target).map(|b| self.crc_table.calculate(&b));
+                if let Ok(crc) = target_crc {
+                    self.cache
+                        .entry(target.clone())
+                        .and_modify(|c| *c = crc)
+                        .or_insert(crc);
+                }
             }
             CPD => {
                 todo!();
@@ -689,6 +711,9 @@ impl Executor {
                         .or_insert_with(|| value);
                 }
             }
+            WC => {
+                self.write_cache();
+            }
             WS => {
                 let seconds = input
                     .parse::<u64>()
@@ -743,6 +768,12 @@ impl Executor {
             CONTAINS,
             "returns true if the value in :if contains the specified string",
             "build-only",
+        );
+        Self::help(
+            verbose,
+            CPC,
+            "copy the specified file if it has changed since last copy",
+            "\"C:/1.txt\" \"C:/2.txt\"",
         );
         Self::help(verbose, CPD, "(TODO) copies directory", "(TODO)");
         Self::help(
@@ -905,6 +936,12 @@ impl Executor {
             "stops printing \"Starting phase[...]\"",
             "",
         );
+        Self::help(
+            verbose,
+            WC,
+            "writes the cache before continuing, otherwise cache is written at normal script exit",
+            "",
+        );
         Self::help(verbose, WS, "waits seconds", "1");
     }
 
@@ -1000,7 +1037,7 @@ mod tests {
 
     #[test]
     pub fn get_execute_strings() {
-        let strings = Executor::get_execute_strings("/c echo \"hello \\\"world\"".into());
+        let strings = str_utils::get_line_strings("/c echo \"hello \\\"world\"".into());
         assert_eq!(
             strings,
             vec!["/c", "echo", "hello \"world"]

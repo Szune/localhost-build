@@ -15,15 +15,24 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+pub mod crc32;
 pub mod executor;
 pub mod lexer;
 pub mod preprocessor;
+pub mod str_utils;
 pub mod token;
 
 fn main() {
     let script =
         std::fs::read_to_string("build.lb").unwrap_or_else(|_| panic!("couldn't read build.lb"));
-    let mut executor = executor::Executor::new(script);
+    let cache = std::fs::read_to_string("build.lb.cache");
+
+    let mut executor = if let Ok(cache) = cache {
+        let cache = str_utils::parse_cache(cache);
+        executor::Executor::with_cache(script, cache)
+    } else {
+        executor::Executor::new(script)
+    };
 
     executor.execute();
 }
