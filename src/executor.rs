@@ -671,7 +671,20 @@ impl Executor {
             }
             TB => {
                 // reset table
-                self.table = table::Table::new(5);
+                let arguments = str_utils::get_line_strings(input);
+                let argument = arguments
+                    .iter()
+                    .filter(|a| a.chars().any(|c| !c.is_ascii_whitespace()))
+                    .next();
+                if let Some(arg) = argument {
+                    let margin = arg.parse::<usize>();
+                    match margin {
+                        Ok(margin) => self.table = table::Table::new(margin),
+                        Err(err) => panic!("Invalid argument to '{}':\n{}", TB, err),
+                    }
+                } else {
+                    self.table = table::Table::new(5);
+                }
             } // table begin
             TE => {
                 self.table.print();

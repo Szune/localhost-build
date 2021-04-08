@@ -45,69 +45,69 @@ pub fn get_line_strings(input: String) -> Vec<String> {
     let mut strings = Vec::new();
     let mut sb = Vec::new();
     let mut it = input.chars();
-    let mut buffer = ['\n', '\n'];
+    let mut buffer: [Option<char>; 2] = [None, None];
     let mut in_string = false;
-    buffer[0] = it.next().unwrap_or('\n');
-    buffer[1] = it.next().unwrap_or('\n');
+    buffer[0] = it.next();
+    buffer[1] = it.next();
 
     loop {
         macro_rules! eat(
                 () => {
                     if let Some(current) = it.next() {
                         buffer[0] = buffer[1];
-                        buffer[1] = current;
+                        buffer[1] = Some(current);
                     } else {
                         buffer[0] = buffer[1];
-                        buffer[1] = '\n';
-                        if buffer[0] == '\n' && buffer[1] == '\n' {
+                        buffer[1] = None;
+                        if buffer[0] == None && buffer[1] == None {
                             break;
                         }
                     }
                 }
             );
-
         match (buffer[0], buffer[1], in_string) {
-            (' ', _, false) => {
+            (Some(' '), _, false) => {
                 if !sb.is_empty() {
                     strings.push(String::from_iter(&sb));
                     sb.clear();
                 }
             }
-            ('\\', '"', _) => {
+            (Some('\\'), Some('"'), _) => {
                 eat!();
                 sb.push('"');
             }
-            ('\\', '\'', _) => {
+            (Some('\\'), Some('\''), _) => {
                 eat!();
                 sb.push('\'');
             }
-            ('\\', '\\', _) => {
+            (Some('\\'), Some('\\'), _) => {
                 eat!();
                 sb.push('\\');
             }
-            ('\\', c, _) => {
-                panic!("unknown escape char '{}' in string {:?}", c, input);
+            (Some('\\'), c, _) => {
+                panic!("unknown escape char '{:?}' in string {:?}", c, input);
             }
-            ('"', '"', false) => {
+            (Some('"'), Some('"'), false) => {
                 eat!();
                 strings.push(String::new());
             }
-            ('"', '"', true) => {
+            (Some('"'), Some('"'), true) => {
                 panic!("unescaped quote in string {:?}", input);
             }
-            ('"', _, true) => {
+            (Some('"'), _, true) => {
                 if !sb.is_empty() {
                     strings.push(String::from_iter(&sb));
                     sb.clear();
                 }
                 in_string = false;
             }
-            ('"', _, false) => {
+            (Some('"'), _, false) => {
                 in_string = true;
             }
-            (c, ..) => {
+            (Some(c), ..) => {
                 sb.push(c);
             }
+            (_, _, _) => break,
         }
 
         eat!();
@@ -144,17 +144,16 @@ pub fn parse_cache(cache: String) -> HashMap<String, u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     #[test]
     pub fn single_value_without_double_quotes_should_be_its_own_string() {
-        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string() + "\n");
+        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string());
         assert_eq!(strings.len(), 4);
     }
 
     #[test]
     pub fn four_strings() {
-        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string() + "\n");
+        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string());
         assert_eq!(strings[0], "hello-world");
         assert_eq!(strings[1], "string1");
         assert_eq!(strings[2], "string2");
@@ -162,8 +161,14 @@ mod tests {
     }
 
     #[test]
+    pub fn a_number() {
+        let strings = get_line_strings(r#"3"#.to_string());
+        assert_eq!(strings[0], "3");
+    }
+
+    #[test]
     pub fn space_between_two_strings_should_not_be_its_own_string() {
-        let strings = get_line_strings(r#""string1" "string2""#.to_string() + "\n");
+        let strings = get_line_strings(r#""string1" "string2""#.to_string());
         assert_eq!(strings.len(), 2);
     }
 
