@@ -20,7 +20,7 @@ use crate::str_utils;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::fs::{DirEntry, ReadDir};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug)]
 pub struct CanonicalFsOp {
@@ -34,18 +34,39 @@ pub struct FsOp {
 }
 
 impl FsOp {
-    pub fn canonicalize(&self) -> CanonicalFsOp {
-        let source = PathBuf::from(&self.source)
-            .canonicalize()
-            .unwrap_or_else(|err| {
-                panic!("Failed to canonicalize path '{}':\n{}", &self.source, err)
-            });
+    // std::fs::canonicalize() does not work for paths that don't exist
+    fn canonicalize_any(path: &Path) -> PathBuf {
+        let mut components = path.components();
+        let mut new_path = PathBuf::new();
 
-        let target = PathBuf::from(&self.target)
-            .canonicalize()
-            .unwrap_or_else(|err| {
-                panic!("Failed to canonicalize path '{}':\n{}", &self.target, err)
-            });
+        if let Some(c) = components.next() {
+            match c {
+                Component::RootDir => new_path.push(c.as_os_str()),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    new_path.pop();
+                }
+                Component::Normal(_) | Component::Prefix(_) => new_path.push(c.as_os_str()),
+            }
+        }
+
+        while let Some(c) = components.next() {
+            match c {
+                Component::RootDir => unreachable!(),
+                Component::CurDir => {}
+                Component::ParentDir => {
+                    new_path.pop();
+                }
+                Component::Normal(_) | Component::Prefix(_) => new_path.push(c.as_os_str()),
+            }
+        }
+
+        new_path
+    }
+
+    pub fn canonicalize(&self) -> CanonicalFsOp {
+        let source = Self::canonicalize_any(&PathBuf::from(&self.source));
+        let target = Self::canonicalize_any(&PathBuf::from(&self.target));
 
         CanonicalFsOp { source, target }
     }
@@ -85,9 +106,11 @@ pub fn cached_copy(fs_op: FsOp, cache: &mut HashMap<String, u32>, crc_table: &Cr
     if cache.contains_key(&fs_op.target) {
         // target has been cached from before, check if source has same hash
         let crc = cache.get(&fs_op.target).unwrap();
-        if fs::read(&fs_op.source)
-            .map(|b| crc_table.compare(&b, *crc))
-            .unwrap_or(false)
+        let target_exists = PathBuf::from(&fs_op.target).exists();
+        if target_exists
+            && fs::read(&fs_op.source)
+                .map(|b| crc_table.compare(&b, *crc))
+                .unwrap_or(false)
         {
             // no change, skip copy
             return;
@@ -111,7 +134,7 @@ pub fn cached_copy_canonical(
     cache: &mut HashMap<String, u32>,
     crc_table: &Crc32Table,
 ) {
-    if cache.contains_key(&fs_op.target.to_string_lossy().to_string()) {
+    if fs_op.target.exists() && cache.contains_key(&fs_op.target.to_string_lossy().to_string()) {
         // target has been cached from before, check if source has same hash
         let crc = cache
             .get(&fs_op.target.to_string_lossy().to_string())
@@ -193,9 +216,7 @@ fn create_recursive_dir_copy_ops(fs_op: &FsOp) -> Vec<CanonicalFsOp> {
             let path = f
                 .unwrap_or_else(|err| panic!("File system error: {}", err))
                 .path();
-            let source_path = path
-                .canonicalize()
-                .unwrap_or_else(|err| panic!("Failed to canonicalize path:\n{}", err));
+            let source_path = FsOp::canonicalize_any(&path);
             let relative_path = source_path.clone();
             let relative_path = relative_path
                 .strip_prefix(&canonical_fs_op.source)
@@ -210,9 +231,8 @@ fn create_recursive_dir_copy_ops(fs_op: &FsOp) -> Vec<CanonicalFsOp> {
         .map(|(source_path, relative_path)| {
             let mut target_path = PathBuf::from(&fs_op.target);
             target_path.push(relative_path);
-            let target_path = target_path
-                .canonicalize()
-                .unwrap_or_else(|err| panic!("Failed to canonicalize path:\n{}", err));
+            let target_path = FsOp::canonicalize_any(&target_path);
+
             CanonicalFsOp {
                 source: source_path,
                 target: target_path,
