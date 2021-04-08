@@ -18,6 +18,29 @@
 use std::collections::HashMap;
 use std::iter::FromIterator;
 
+pub fn get_strings(input: String) -> Vec<String> {
+    let mut strings = Vec::new();
+    let mut sb = Vec::new();
+    let mut it = input.char_indices();
+    let mut current = it.next();
+    while current.is_some() {
+        match current.unwrap().1 {
+            '"' => {
+                if sb.iter().any(|c| !matches!(c, ' ' | '\r')) {
+                    strings.push(String::from_iter(&sb));
+                }
+                sb.clear();
+            }
+            c => sb.push(c),
+        }
+        current = it.next();
+    }
+    if sb.iter().any(|c| !matches!(c, ' ' | '\r')) {
+        strings.push(String::from_iter(&sb));
+    }
+    strings
+}
+
 pub fn get_line_strings(input: String) -> Vec<String> {
     let mut strings = Vec::new();
     let mut sb = Vec::new();
@@ -54,6 +77,14 @@ pub fn get_line_strings(input: String) -> Vec<String> {
                 eat!();
                 sb.push('"');
             }
+            ('\\', '\'', _) => {
+                eat!();
+                sb.push('\'');
+            }
+            ('\\', '\\', _) => {
+                eat!();
+                sb.push('\\');
+            }
             ('\\', c, _) => {
                 panic!("unknown escape char '{}' in string {:?}", c, input);
             }
@@ -88,7 +119,7 @@ pub fn get_line_strings(input: String) -> Vec<String> {
 }
 
 pub fn get_cache_line(kvp: (&String, &u32)) -> String {
-    let file: String = kvp.0.trim_matches('"').to_string();
+    let file: String = kvp.0.trim_matches('"').escape_debug().to_string();
     let crc: &u32 = kvp.1;
     format!(r#""{}" "{}""#, file, crc)
 }
@@ -113,6 +144,22 @@ pub fn parse_cache(cache: String) -> HashMap<String, u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    pub fn single_value_without_double_quotes_should_be_its_own_string() {
+        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string() + "\n");
+        assert_eq!(strings.len(), 4);
+    }
+
+    #[test]
+    pub fn four_strings() {
+        let strings = get_line_strings(r#"hello-world "string1" "string2" end"#.to_string() + "\n");
+        assert_eq!(strings[0], "hello-world");
+        assert_eq!(strings[1], "string1");
+        assert_eq!(strings[2], "string2");
+        assert_eq!(strings[3], "end");
+    }
 
     #[test]
     pub fn space_between_two_strings_should_not_be_its_own_string() {
@@ -140,4 +187,47 @@ mod tests {
         assert_eq!(strings[0], "bin/test.txt");
         assert_eq!(strings[1], "4294967295");
     }
+
+    macro_rules! test_cache (
+        ($name:ident, $cache:expr, $expected_str:expr, $expected_hash:expr) => {
+            #[test]
+            pub fn $name() {
+                let line = get_cache_line($cache);
+                let parsed = parse_cache(line);
+                let hash = parsed.get(&$expected_str.to_string()).unwrap();
+                assert_eq!(hash, &$expected_hash);
+            }
+        }
+    );
+
+    test_cache!(
+        cache_backslashes,
+        (&r#""\\\\?\\C:\\Program Dreams""#.to_string(), &2),
+        r#"\\\\?\\C:\\Program Dreams"#,
+        2
+    );
+    test_cache!(
+        cache_backslashes_and_apostrophe,
+        (&r#""\\\\?\\C:\\Program Dream's""#.to_string(), &3),
+        r#"\\\\?\\C:\\Program Dream's"#,
+        3
+    );
+    test_cache!(
+        cache_no_extra_backslashes,
+        (&r#""\\?\C:\Program Dream\Subdir""#.to_string(), &4),
+        r#"\\?\C:\Program Dream\Subdir"#,
+        4
+    );
+    test_cache!(
+        cache_forward_slashes,
+        (&r#""C:/Program Size (x51)/qemu/file""#.to_string(), &5),
+        r#"C:/Program Size (x51)/qemu/file"#,
+        5
+    );
+    test_cache!(
+        cache_unix,
+        (&r#""/home/someone/thing""#.to_string(), &6),
+        r#"/home/someone/thing"#,
+        6
+    );
 }

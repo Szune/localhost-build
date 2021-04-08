@@ -17,9 +17,11 @@
  */
 pub mod crc32;
 pub mod executor;
+pub mod fs_utils;
 pub mod lexer;
 pub mod preprocessor;
 pub mod str_utils;
+pub mod table;
 pub mod token;
 
 fn main() {

@@ -72,13 +72,15 @@ $show-test  = showtest -st
 :l > If no arguments are specified, the workflow is as follows:
 :l Format -> Build -> Test -> Check\n
 :l Available arguments:\n
-:l Argument                Action
-:l --------                ------
-:l $format                  formats the code
-:l $build                builds the code
-:l $test                 runs the tests
-:l $check                analyzes the code
-:l $release    builds release instead of debug
+:tb
+:th Argument    Action
+:tr "$format"   "formats the code"
+:tr "$build"    "builds the code"
+:tr "$test"     "runs the tests"
+:tr "$check"    "analyzes the code"
+:tr "$release"  "builds release instead of debug"
+:tr "$help"     "prints help"
+:te
 :q
 
 [format

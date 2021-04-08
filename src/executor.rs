@@ -18,7 +18,7 @@
 use crate::crc32::Crc32Table;
 use crate::lexer::Lexer;
 use crate::token::*;
-use crate::{preprocessor, str_utils};
+use crate::{fs_utils, preprocessor, str_utils, table};
 use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -44,10 +44,12 @@ pub struct Executor {
     announcing_phases: bool,
     cache: HashMap<String, u32>,
     crc_table: Crc32Table,
+    table: table::Table,
 }
 
 const AND: &str = ":and";
 const CONTAINS: &str = ":contains";
+const CPDC: &str = ":cpdc";
 const CPC: &str = ":cpc";
 const CPD: &str = ":cpd";
 const CD: &str = ":cd";
@@ -85,6 +87,10 @@ const Q: &str = ":q";
 const SILENT: &str = ":silent";
 const SETF: &str = ":setf";
 const SETT: &str = ":sett";
+const TB: &str = ":tb";
+const TE: &str = ":te";
+const TH: &str = ":th";
+const TR: &str = ":tr";
 const WC: &str = ":wc";
 const WS: &str = ":ws";
 
@@ -106,6 +112,7 @@ impl Executor {
             announcing_phases: true,
             cache: HashMap::new(),
             crc_table: Crc32Table::default(),
+            table: Default::default(),
         };
 
         let preprocessor_lexer = Lexer::new(script, true);
@@ -130,6 +137,7 @@ impl Executor {
             announcing_phases: true,
             cache,
             crc_table: Crc32Table::default(),
+            table: Default::default(),
         };
 
         let preprocessor_lexer = Lexer::new(script, true);
@@ -353,29 +361,6 @@ impl Executor {
         false
     }
 
-    fn get_strings(&self, input: String) -> Vec<String> {
-        let mut strings = Vec::new();
-        let mut sb = Vec::new();
-        let mut it = input.char_indices();
-        let mut current = it.next();
-        while current.is_some() {
-            match current.unwrap().1 {
-                '"' => {
-                    if sb.iter().any(|c| !matches!(c, ' ' | '\r')) {
-                        strings.push(String::from_iter(&sb));
-                    }
-                    sb.clear();
-                }
-                c => sb.push(c),
-            }
-            current = it.next();
-        }
-        if sb.iter().any(|c| !matches!(c, ' ' | '\r')) {
-            strings.push(String::from_iter(&sb));
-        }
-        strings
-    }
-
     fn get_execution_args(input: String) -> (String, Vec<String>) {
         let mut parts = input.split(' ');
         let process = parts
@@ -407,81 +392,54 @@ impl Executor {
                 std::env::set_current_dir(&input)
                     .unwrap_or_else(|_| panic!("failed to set current dir to '{}'", input));
             }
+            CPDC => {
+                let fs_op = fs_utils::get_source_and_target(input, CPDC);
+                if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
+                    if !is_dir {
+                        panic!(
+                            "'{}' is not a directory, use {} to copy single files",
+                            fs_op.source, CPC
+                        );
+                    }
+                }
+                fs_utils::cached_copy_dir(&fs_op, &mut self.cache, &self.crc_table);
+            }
             CPC => {
-                let parts = self.get_strings(input);
-                let mut it = parts.iter();
-                let source = it
-                    .next()
-                    .unwrap_or_else(|| panic!("missing source argument in {}", CPC));
-                let target = it
-                    .next()
-                    .unwrap_or_else(|| panic!("missing target argument in {}", CPC));
-                if let Ok(is_dir) = std::fs::metadata(source).map(|m| m.is_dir()) {
+                let fs_op = fs_utils::get_source_and_target(input, CPC);
+                if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
                     if is_dir {
                         panic!(
                             "'{}' is a directory, use {} to copy directories",
-                            source, CPD
+                            fs_op.source, CPD
                         );
                     }
                 }
 
-                if self.cache.contains_key(target) {
-                    // target has been cached from before, check if source has same hash
-                    let crc = self.cache.get(target).unwrap();
-                    if std::fs::read(source)
-                        .map(|b| self.crc_table.compare(&b, *crc))
-                        .unwrap_or(false)
-                    {
-                        // no change, skip copy
-                        return false;
-                    }
-                }
-
-                std::fs::copy(source, target).unwrap_or_else(|_| {
-                    panic!("failed to copy file from '{}' to '{}'", source, target)
-                });
-
-                // update/store crc32 of target
-                let target_crc = std::fs::read(target).map(|b| self.crc_table.calculate(&b));
-                if let Ok(crc) = target_crc {
-                    self.cache
-                        .entry(target.clone())
-                        .and_modify(|c| *c = crc)
-                        .or_insert(crc);
-                }
+                fs_utils::cached_copy(fs_op, &mut self.cache, &self.crc_table);
             }
             CPD => {
-                todo!();
-                /*
-                let parts = self.get_strings(input);
-                let mut it = parts.iter();
-                let mut source_path = PathBuf::from(
-                it.next().expect("missing source name argument in :cpd"));
-                let mut target_path = PathBuf::from(
-                it.next().expect("missing target name argument in :cpd")
-                );
-                */
-            }
-            CP => {
-                let parts = self.get_strings(input);
-                let mut it = parts.iter();
-                let source = it
-                    .next()
-                    .unwrap_or_else(|| panic!("missing source argument in {}", CP));
-                let target = it
-                    .next()
-                    .unwrap_or_else(|| panic!("missing target argument in {}", CP));
-                if let Ok(is_dir) = std::fs::metadata(source).map(|m| m.is_dir()) {
-                    if is_dir {
+                let fs_op = fs_utils::get_source_and_target(input, CPD);
+                if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
+                    if !is_dir {
                         panic!(
-                            "'{}' is a directory, use {} to copy directories",
-                            source, CPD
+                            "'{}' is not a directory, use {} to copy single files",
+                            fs_op.source, CP
                         );
                     }
                 }
-                std::fs::copy(source, target).unwrap_or_else(|_| {
-                    panic!("failed to copy file from '{}' to '{}'", source, target)
-                });
+                fs_utils::copy_dir(&fs_op);
+            }
+            CP => {
+                let fs_op = fs_utils::get_source_and_target(input, CP);
+                if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
+                    if is_dir {
+                        panic!(
+                            "'{}' is a directory, use {} to copy directories",
+                            &fs_op.source, CPD
+                        );
+                    }
+                }
+                fs_utils::copy(&fs_op);
             }
             EP => {
                 let input_clone = input.clone();
@@ -611,7 +569,7 @@ impl Executor {
                 println!("{}", input);
             }
             MV => {
-                let parts = self.get_strings(input);
+                let parts = str_utils::get_strings(input);
                 let mut it = parts.iter();
                 let source = it.next().expect("missing source name argument in :mv");
                 let target = it.next().expect("missing target name argument in :mv");
@@ -711,6 +669,19 @@ impl Executor {
                         .or_insert_with(|| value);
                 }
             }
+            TB => {
+                // reset table
+                self.table = table::Table::new(5);
+            } // table begin
+            TE => {
+                self.table.print();
+            } // table end
+            TH => {
+                self.table.set_headers(str_utils::get_line_strings(input));
+            } // table headers (headers separated by spaces or strings)
+            TR => {
+                self.table.add_row(str_utils::get_line_strings(input));
+            } // table row (cells separated by spaces or strings)
             WC => {
                 self.write_cache();
             }
@@ -771,11 +742,17 @@ impl Executor {
         );
         Self::help(
             verbose,
+            CPDC,
+            "copies directory's files that have changed",
+            "\"C:/1\" \"C:/2\"",
+        );
+        Self::help(
+            verbose,
             CPC,
             "copy the specified file if it has changed since last copy",
             "\"C:/1.txt\" \"C:/2.txt\"",
         );
-        Self::help(verbose, CPD, "(TODO) copies directory", "(TODO)");
+        Self::help(verbose, CPD, "copies directory", "\"C:/1\" \"C:/2\"");
         Self::help(
             verbose,
             CP,
@@ -936,6 +913,15 @@ impl Executor {
             "stops printing \"Starting phase[...]\"",
             "",
         );
+        Self::help(verbose, TB, "start a new table", "");
+        Self::help(verbose, TE, "ends and prints the table", "");
+        Self::help(
+            verbose,
+            TH,
+            "sets the headers of the table",
+            "Header-1 Header-2",
+        );
+        Self::help(verbose, TR, "adds a row to the table", "Value-1 Value-2");
         Self::help(
             verbose,
             WC,
