@@ -18,8 +18,7 @@
 use crate::crc32::Crc32Table;
 use crate::lexer::Lexer;
 use crate::token::*;
-use crate::{fs_utils, preprocessor, str_utils, table};
-use std::borrow::BorrowMut;
+use crate::{fs, preprocessor, str, table};
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::thread::sleep;
@@ -47,6 +46,7 @@ pub struct Executor {
     table: table::Table,
 }
 
+const ARGTO: &str = ":argto";
 const AND: &str = ":and";
 const CONTAINS: &str = ":contains";
 const CPDC: &str = ":cpdc";
@@ -54,6 +54,8 @@ const CPC: &str = ":cpc";
 const CPD: &str = ":cpd";
 const CD: &str = ":cd";
 const CP: &str = ":cp";
+const EMPTY: &str = ":empty";
+const ENW: &str = ":enw";
 const EP: &str = ":ep";
 const EQ: &str = ":eq";
 const E: &str = ":e";
@@ -72,6 +74,7 @@ const LOS: &str = ":los";
 const LF: &str = ":lf";
 const LT: &str = ":lt";
 const L: &str = ":l";
+const MVD: &str = ":mvd";
 const MV: &str = ":mv";
 const NEQ: &str = ":neq";
 const NOT: &str = ":not";
@@ -98,7 +101,7 @@ impl Executor {
     pub fn new(script: String) -> Executor {
         let script = preprocessor::perform_imports(script);
         let mut executor = Executor {
-            lexer: Lexer::new(script.clone(), false),
+            lexer: Lexer::new(script.clone().into(), false),
             last_proc_out: String::new(),
             last_proc_err: String::new(),
             last_proc_code: 0,
@@ -115,7 +118,7 @@ impl Executor {
             table: Default::default(),
         };
 
-        let preprocessor_lexer = Lexer::new(script, true);
+        let preprocessor_lexer = Lexer::new(script.into(), true);
         executor.groups = preprocessor::run(preprocessor_lexer);
         executor
     }
@@ -123,7 +126,7 @@ impl Executor {
     pub fn with_cache(script: String, cache: HashMap<String, u32>) -> Executor {
         let script = preprocessor::perform_imports(script);
         let mut executor = Executor {
-            lexer: Lexer::new(script.clone(), false),
+            lexer: Lexer::new(script.clone().into(), false),
             last_proc_out: String::new(),
             last_proc_err: String::new(),
             last_proc_code: 0,
@@ -140,7 +143,7 @@ impl Executor {
             table: Default::default(),
         };
 
-        let preprocessor_lexer = Lexer::new(script, true);
+        let preprocessor_lexer = Lexer::new(script.into(), true);
         executor.groups = preprocessor::run(preprocessor_lexer);
         executor
     }
@@ -155,7 +158,7 @@ impl Executor {
                 self.executing_group_args.get(c).unwrap().clone()
             }
             c if self.variables.contains_key(c) => self.variables.get(c).unwrap().clone(),
-            _ => var,
+            _ => "".into(),
         }
     }
 
@@ -170,6 +173,29 @@ impl Executor {
             })
             .collect::<Vec<String>>()
             .join(" ")
+    }
+
+    fn get_arg(arg_name: String) -> String {
+        if !Self::get_args()
+            .split(' ')
+            .any(|ar| arg_name.split(' ').any(|inp| ar == inp))
+        {
+            return String::new();
+        }
+        let args = Self::get_args();
+        let strings = str::get_line_strings(args);
+        let strings_iter = &mut strings.iter();
+        let idx = strings_iter.position(|arg| arg_name.split(' ').any(|a| a == arg));
+        if let Some(idx) = idx {
+            strings
+                .into_iter()
+                .skip(idx + 1)
+                .take_while(|a| !a.starts_with('-'))
+                .collect::<Vec<String>>()
+                .join(" ")
+        } else {
+            String::new()
+        }
     }
 
     fn interpret_string(&self, s: String) -> String {
@@ -301,7 +327,7 @@ impl Executor {
         let cache = self
             .cache
             .iter()
-            .map(str_utils::get_cache_line)
+            .map(str::get_cache_line)
             .collect::<Vec<String>>()
             .join("\n");
 
@@ -362,26 +388,31 @@ impl Executor {
     }
 
     fn get_execution_args(input: String) -> (String, Vec<String>) {
-        let mut parts = input.split(' ');
-        let process = parts
-            .borrow_mut()
-            .take(1)
-            .next()
-            .expect("Command ':ep' requires a process to execute");
-
-        let args = parts
-            .borrow_mut()
-            .map(|p| p.to_owned())
-            .filter(|p| !p.is_empty())
-            .collect::<Vec<String>>()
-            .join(" ");
-        let args = str_utils::get_line_strings(args);
-        (process.to_owned(), args)
+        //let (process, args) = str::separate_first_value_from_rest(input, EP).destructure();
+        let args = str::get_line_strings(input);
+        let mut iter = args.into_iter();
+        let process = iter.next().expect("Requires a process to start");
+        (process.to_owned(), iter.collect())
     }
 
     /// return value is "should_quit"
     fn execute_command(&mut self, command: &str, input: String) -> bool {
         match command {
+            ARGTO => {
+                let strings = str::get_line_strings(input);
+                let mut strings = strings.into_iter();
+                let arg = strings
+                    .next()
+                    .unwrap_or_else(|| panic!("'{}' requires an argument to get (arg 1)", ARGTO));
+                let variable = strings
+                    .next()
+                    .unwrap_or_else(|| panic!("'{}' requires a variable to set (arg 2)", ARGTO));
+                let arg_value = Self::get_arg(arg);
+                self.variables
+                    .entry(variable)
+                    .and_modify(|v| *v = arg_value.clone())
+                    .or_insert_with(|| arg_value);
+            }
             AND => {
                 self.awaiting_evaluation = Some(Evaluation::And);
             }
@@ -393,7 +424,7 @@ impl Executor {
                     .unwrap_or_else(|_| panic!("failed to set current dir to '{}'", input));
             }
             CPDC => {
-                let fs_op = fs_utils::get_source_and_target(input, CPDC);
+                let fs_op = fs::get_source_and_target(input, CPDC);
                 if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
                     if !is_dir {
                         panic!(
@@ -402,10 +433,10 @@ impl Executor {
                         );
                     }
                 }
-                fs_utils::cached_copy_dir(&fs_op, &mut self.cache, &self.crc_table);
+                fs::cached_copy_dir(&fs_op, &mut self.cache, &self.crc_table);
             }
             CPC => {
-                let fs_op = fs_utils::get_source_and_target(input, CPC);
+                let fs_op = fs::get_source_and_target(input, CPC);
                 if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
                     if is_dir {
                         panic!(
@@ -415,10 +446,10 @@ impl Executor {
                     }
                 }
 
-                fs_utils::cached_copy(fs_op, &mut self.cache, &self.crc_table);
+                fs::cached_copy(fs_op, &mut self.cache, &self.crc_table);
             }
             CPD => {
-                let fs_op = fs_utils::get_source_and_target(input, CPD);
+                let fs_op = fs::get_source_and_target(input, CPD);
                 if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
                     if !is_dir {
                         panic!(
@@ -427,10 +458,10 @@ impl Executor {
                         );
                     }
                 }
-                fs_utils::copy_dir(&fs_op);
+                fs::copy_dir(&fs_op);
             }
             CP => {
-                let fs_op = fs_utils::get_source_and_target(input, CP);
+                let fs_op = fs::get_source_and_target(input, CP);
                 if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
                     if is_dir {
                         panic!(
@@ -439,7 +470,20 @@ impl Executor {
                         );
                     }
                 }
-                fs_utils::copy(&fs_op);
+                fs::copy(&fs_op);
+            }
+            EMPTY => {
+                self.add_if_result(self.last_if_test_value.is_empty());
+            }
+            ENW => {
+                // execute, no waiting
+                let input_clone = input.clone();
+                let (process, args) = Self::get_execution_args(input);
+
+                std::process::Command::new(process)
+                    .args(args)
+                    .spawn()
+                    .unwrap_or_else(|_| panic!("process failed to execute (:enw {})", input_clone));
             }
             EP => {
                 let input_clone = input.clone();
@@ -469,10 +513,15 @@ impl Executor {
                 let (process, args) = Self::get_execution_args(input);
 
                 //println!("process: {:?}, args: {:?}", process, args);
-                let result = std::process::Command::new(process)
-                    .args(args)
+                let result = std::process::Command::new(&process)
+                    .args(&args)
                     .output()
-                    .unwrap_or_else(|_| panic!("process failed to execute (:e {})", input_clone));
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "process failed to execute process '{}' with args '{:#?}':\n{}",
+                            &process, &args, err
+                        )
+                    });
 
                 self.last_proc_err =
                     String::from_utf8(result.stderr).expect("stderr was not UTF-8");
@@ -568,13 +617,21 @@ impl Executor {
             L => {
                 println!("{}", input);
             }
+            MVD => {
+                todo!();
+            }
             MV => {
-                let parts = str_utils::get_strings(input);
-                let mut it = parts.iter();
-                let source = it.next().expect("missing source name argument in :mv");
-                let target = it.next().expect("missing target name argument in :mv");
-                std::fs::rename(source, target)
-                    .unwrap_or_else(|_| panic!("failed to move from '{}' to '{}'", source, target));
+                let fs_op = fs::get_source_and_target(input, MV);
+                if let Ok(is_dir) = std::fs::metadata(&fs_op.source).map(|m| m.is_dir()) {
+                    if is_dir {
+                        panic!(
+                            "'{}' is a directory, use {} to move directories",
+                            &fs_op.source, MVD
+                        );
+                    }
+                }
+
+                fs::move_it(&fs_op);
             }
             NEQ => {
                 self.add_if_result(self.last_if_test_value != input);
@@ -627,51 +684,28 @@ impl Executor {
             }
             SETF => {
                 if !self.get_if_result(SETF) {
-                    let mut parts = input.split(' ');
-                    let var = parts
-                        .borrow_mut()
-                        .take(1)
-                        .next()
-                        .unwrap_or_else(|| panic!("Command '{}' requires a variable to set", SETF))
-                        .to_string();
-                    let value: String = parts
-                        .borrow_mut()
-                        .map(|p| p.to_owned())
-                        .filter(|p| !p.is_empty())
-                        .collect::<Vec<String>>()
-                        .join(" ");
+                    let (first, rest) =
+                        str::separate_first_value_from_rest(input, SETF).destructure();
 
                     self.variables
-                        .entry(var)
-                        .and_modify(|v| *v = value.clone())
-                        .or_insert_with(|| value);
+                        .entry(first)
+                        .and_modify(|v| *v = rest.clone())
+                        .or_insert_with(|| rest);
                 }
             }
             SETT => {
                 if self.get_if_result(SETT) {
-                    let mut parts = input.split(' ');
-                    let var = parts
-                        .borrow_mut()
-                        .take(1)
-                        .next()
-                        .unwrap_or_else(|| panic!("Command '{}' requires a variable to set", SETT))
-                        .to_string();
-                    let value: String = parts
-                        .borrow_mut()
-                        .map(|p| p.to_owned())
-                        .filter(|p| !p.is_empty())
-                        .collect::<Vec<String>>()
-                        .join(" ");
-
+                    let (first, rest) =
+                        str::separate_first_value_from_rest(input, SETT).destructure();
                     self.variables
-                        .entry(var)
-                        .and_modify(|v| *v = value.clone())
-                        .or_insert_with(|| value);
+                        .entry(first)
+                        .and_modify(|v| *v = rest.clone())
+                        .or_insert_with(|| rest);
                 }
             }
             TB => {
                 // reset table
-                let arguments = str_utils::get_line_strings(input);
+                let arguments = str::get_line_strings(input);
                 let argument = arguments
                     .iter()
                     .filter(|a| a.chars().any(|c| !c.is_ascii_whitespace()))
@@ -690,10 +724,10 @@ impl Executor {
                 self.table.print();
             } // table end
             TH => {
-                self.table.set_headers(str_utils::get_line_strings(input));
+                self.table.set_headers(str::get_line_strings(input));
             } // table headers (headers separated by spaces or strings)
             TR => {
-                self.table.add_row(str_utils::get_line_strings(input));
+                self.table.add_row(str::get_line_strings(input));
             } // table row (cells separated by spaces or strings)
             WC => {
                 self.write_cache();
@@ -743,6 +777,12 @@ impl Executor {
 
         Self::help(
             verbose,
+            ARGTO,
+            "gets the value of an argument and assigns a variable (sets to empty string if no value)",
+            "\"-n\" variablename",
+        );
+        Self::help(
+            verbose,
             AND,
             "returns true if the last result and the following result are true",
             "",
@@ -777,6 +817,18 @@ impl Executor {
             CD,
             "sets the current working directory",
             "test_dir",
+        );
+        Self::help(
+            verbose,
+            EMPTY,
+            "sets last result to true if the last :if was empty",
+            "",
+        );
+        Self::help(
+            verbose,
+            ENW,
+            "executes process without waiting for the process to exit",
+            "cargo build",
         );
         Self::help(
             verbose,
@@ -856,6 +908,12 @@ impl Executor {
             "was true!",
         );
         Self::help(verbose, L, "logs specified message", "hello world");
+        Self::help(
+            verbose,
+            MVD,
+            "(TODO) moves the specified directory",
+            "(TODO)",
+        );
         Self::help(
             verbose,
             MV,
@@ -1036,7 +1094,7 @@ mod tests {
 
     #[test]
     pub fn get_execute_strings() {
-        let strings = str_utils::get_line_strings("/c echo \"hello \\\"world\"".into());
+        let strings = str::get_line_strings("/c echo \"hello \\\"world\"".into());
         assert_eq!(
             strings,
             vec!["/c", "echo", "hello \"world"]

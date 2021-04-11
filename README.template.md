@@ -1,4 +1,4 @@
-# localhost-build 0.7.0
+# localhost-build ${VERSION}$
 A basic build scripting language very quickly thrown together, it's a hacky mess.
 
 At least it was fun to create. (It's still a work in progress though!)

@@ -17,10 +17,11 @@
  */
 pub mod crc32;
 pub mod executor;
-pub mod fs_utils;
+pub mod fs;
 pub mod lexer;
+pub mod macros;
 pub mod preprocessor;
-pub mod str_utils;
+pub mod str;
 pub mod table;
 pub mod token;
 
@@ -30,7 +31,7 @@ fn main() {
     let cache = std::fs::read_to_string("build.lb.cache");
 
     let mut executor = if let Ok(cache) = cache {
-        let cache = str_utils::parse_cache(cache);
+        let cache = str::parse_cache(cache);
         executor::Executor::with_cache(script, cache)
     } else {
         executor::Executor::new(script)

@@ -16,22 +16,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-pub struct Crc32Table(Vec<u32>);
+use crate::tuple;
+tuple!(Crc32Table(table: Vec<u32>));
+
 impl Default for Crc32Table {
     fn default() -> Self {
-        Crc32Table(
-            (0u32..256)
-                .map(|i| {
-                    (0..8).fold(i, |acc, _| {
-                        if acc & 1 != 0 {
-                            0xEDB88320 ^ (acc >> 1)
-                        } else {
-                            acc >> 1
-                        }
-                    })
+        (0u32..256)
+            .map(|i| {
+                (0..8).fold(i, |acc, _| {
+                    if acc & 1 != 0 {
+                        0xEDB88320 ^ (acc >> 1)
+                    } else {
+                        acc >> 1
+                    }
                 })
-                .collect::<Vec<u32>>(),
-        )
+            })
+            .collect::<Vec<u32>>()
+            .into()
     }
 }
 
@@ -39,7 +40,7 @@ impl Crc32Table {
     #[inline(always)]
     pub fn calculate(&self, bytes: &[u8]) -> u32 {
         bytes.iter().fold(!0u32, |acc, it| {
-            self.0[(((acc & 0xFF) as u8) ^ *it) as usize] ^ (acc >> 8)
+            self.table[(((acc & 0xFF) as u8) ^ *it) as usize] ^ (acc >> 8)
         })
     }
     pub fn compare(&self, bytes: &[u8], crc32: u32) -> bool {

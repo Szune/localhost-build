@@ -17,9 +17,12 @@
  */
 use crate::lexer::Lexer;
 use crate::token::{GroupDefinition, TokenKind};
+use crate::tuple;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
+
+tuple!(PreprocessedScript(script: String));
 
 pub fn run(mut lexer: Lexer) -> HashMap<String, GroupDefinition> {
     if !lexer.preprocessor {
@@ -40,7 +43,7 @@ pub fn run(mut lexer: Lexer) -> HashMap<String, GroupDefinition> {
     groups
 }
 
-pub fn perform_imports(script: String) -> String {
+fn perform_imports_inner(script: String) -> String {
     let script_lines = script
         .lines()
         .map(|l| {
@@ -94,13 +97,14 @@ pub fn perform_imports(script: String) -> String {
         .lines()
         .any(|l| l.starts_with("&import(") && l.ends_with(')'))
     {
-        script = perform_imports(script);
+        script = perform_imports_inner(script);
     }
 
-    /*
-    println!("after importing:\n{}", script);
-    panic!();
-     */
-
     script
+}
+
+pub fn perform_imports(script: String) -> PreprocessedScript {
+    let script = perform_imports_inner(script);
+
+    script.into()
 }

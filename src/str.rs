@@ -15,8 +15,31 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+use crate::tuple;
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::iter::FromIterator;
+
+tuple!(FirstRest(first: String, rest: String));
+
+/// Separates (by spaces and tabs) the first value from the rest of the string
+pub fn separate_first_value_from_rest(input: String, command: &str) -> FirstRest {
+    let mut parts = input.split(|c| c == ' ' || c == '\t');
+    let first = parts
+        .borrow_mut()
+        .take(1)
+        .next()
+        .unwrap_or_else(|| panic!("Command '{}' requires a variable to set", command))
+        .to_string();
+
+    let rest: String = parts
+        .borrow_mut()
+        .map(|p| p.to_owned())
+        .filter(|p| !p.is_empty() && p.chars().any(|c| !c.is_ascii_whitespace()))
+        .collect::<Vec<String>>()
+        .join(" ");
+    (first, rest).into()
+}
 
 pub fn get_strings(input: String) -> Vec<String> {
     let mut strings = Vec::new();
@@ -118,9 +141,8 @@ pub fn get_line_strings(input: String) -> Vec<String> {
     strings
 }
 
-pub fn get_cache_line(kvp: (&String, &u32)) -> String {
-    let file: String = kvp.0.trim_matches('"').escape_debug().to_string();
-    let crc: &u32 = kvp.1;
+pub fn get_cache_line((file, crc): (&String, &u32)) -> String {
+    let file: String = file.trim_matches('"').escape_debug().to_string();
     format!(r#""{}" "{}""#, file, crc)
 }
 
