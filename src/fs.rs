@@ -180,11 +180,11 @@ where
 {
     let mut created_dirs: HashSet<PathBuf> = HashSet::new();
     for op in paths {
-        if op.target.is_dir() {
+        if op.source.is_dir() {
             if created_dirs.insert(op.target.clone()) {
                 create_dirs(&op.target);
             }
-        } else {
+        } else if op.source.is_file() {
             let path_buf = op
                 .target
                 .parent()
@@ -195,6 +195,8 @@ where
             }
             // if we're lucky we've now got a directory to copy the file into
             copy_fn(op);
+        } else {
+            println!("Warning: could not copy {:?} (file: {}, dir: {})", &op.source, &op.source.is_file(), &op.source.is_dir());
         }
     }
 }
