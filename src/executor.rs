@@ -59,6 +59,7 @@ const ENW: &str = ":enw";
 const EP: &str = ":ep";
 const EQ: &str = ":eq";
 const E: &str = ":e";
+const GOTOF: &str = ":gotof";
 const GOTOT: &str = ":gotot";
 const GOTO: &str = ":goto";
 const HASARG: &str = ":hasarg";
@@ -534,6 +535,11 @@ impl Executor {
                     )
                 });
             }
+            GOTOF => {
+                if !self.get_if_result(GOTOF) {
+                    self.goto_phase = Some(input);
+                }
+            }
             GOTOT => {
                 if self.get_if_result(GOTOT) {
                     self.goto_phase = Some(input);
@@ -843,6 +849,12 @@ impl Executor {
             "hello",
         );
         Self::help(verbose, E, "executes process", "cargo build");
+        Self::help(
+            verbose,
+            GOTOF,
+            "goes to specified phase if last evaluation command returned false",
+            "@build-only",
+        );
         Self::help(
             verbose,
             GOTOT,
