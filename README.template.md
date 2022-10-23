@@ -63,6 +63,17 @@ $overwrite-me ?= hello world
 :l $overwrite-me
 ```
 
+Set a variable while interpreting variables:
+```
+:l $pwd
+:set savewd $pwd
+:set curwd $pwd/build
+:cd $curwd
+:l $pwd
+:set curwd $savewd
+:cd $curwd
+:l $pwd
+```
 ### Comments
 Comments are not allowed on the same line as a command (:), i.e. they will simply be arguments to the command:
 

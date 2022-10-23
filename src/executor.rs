@@ -91,6 +91,7 @@ const Q: &str = ":q";
 const SILENT: &str = ":silent";
 const SETF: &str = ":setf";
 const SETT: &str = ":sett";
+const SET: &str = ":set";
 const TB: &str = ":tb";
 const TE: &str = ":te";
 const TH: &str = ":th";
@@ -154,6 +155,7 @@ impl Executor {
             "stderr" => self.last_proc_err.clone(),
             "stdout" => self.last_proc_out.clone(),
             "exit-code" => self.last_proc_code.to_string(),
+            "pwd" => std::env::current_dir().unwrap().to_string_lossy().to_string(),
             "args" => Self::get_args(),
             c if self.executing_group_args.contains_key(c) => {
                 self.executing_group_args.get(c).unwrap().clone()
@@ -709,6 +711,13 @@ impl Executor {
                         .or_insert_with(|| rest);
                 }
             }
+            SET => {
+                let (first, rest) = str::separate_first_value_from_rest(input, SET).destructure();
+                self.variables
+                    .entry(first)
+                    .and_modify(|v| *v = rest.clone())
+                    .or_insert_with(|| rest);
+            }
             TB => {
                 // reset table
                 let arguments = str::get_line_strings(input);
@@ -777,6 +786,9 @@ impl Executor {
     }
 
     fn print_help(verbose: bool) {
+        println!("localhost-build {}", env!("CARGO_PKG_VERSION"));
+        println!();
+
         if verbose {
             println!("{:<20}Example", "Command");
         }
@@ -989,6 +1001,12 @@ impl Executor {
             SETT,
             "sets a variable if last :if returned true (do not prefix with $ unless you're setting the variable in the variable)",
             "profile \"--release\"",
+        );
+        Self::help(
+            verbose,
+            SET,
+            "sets a variable unconditionally (do not prefix with $ unless you're setting the variable in the variable)",
+            "savewd $pwd",
         );
         Self::help(
             verbose,

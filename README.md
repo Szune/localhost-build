@@ -1,4 +1,4 @@
-# localhost-build 0.7.1
+# localhost-build 0.7.2
 A basic build scripting language very quickly thrown together, it's a hacky mess.
 
 At least it was fun to create. (It's still a work in progress though!)
@@ -63,6 +63,17 @@ $overwrite-me ?= hello world
 :l $overwrite-me
 ```
 
+Set a variable and interpret variables:
+```
+:l $pwd
+:set savewd $pwd
+:set curwd $pwd/build
+:cd $curwd
+:l $pwd
+:set curwd $savewd
+:cd $curwd
+:l $pwd
+```
 ### Comments
 Comments are not allowed on the same line as a command (:), i.e. they will simply be arguments to the command:
 
@@ -135,4 +146,4 @@ $build = build -b
 :l building
 :e cargo build
 :q
-```
+````
